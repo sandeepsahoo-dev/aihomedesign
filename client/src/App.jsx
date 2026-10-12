@@ -5,6 +5,7 @@ import Home from './pages/Home';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Studio from './pages/Studio';
+import PdfUploadPage from './pages/PdfUploadPage';
 
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useContext(AuthContext);
@@ -24,10 +25,8 @@ function App() {
             <Route path="/" element={<Home />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
-            <Route
-              path="/studio"
-              element={<Studio />}
-            />
+            <Route path="/studio" element={<Studio />} />
+            <Route path="/pdf-upload" element={<PdfUploadPage />} />
           </Routes>
         </div>
       </Router>

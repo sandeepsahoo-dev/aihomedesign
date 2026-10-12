@@ -26,6 +26,12 @@ const Home = () => {
                         Start Building
                     </Link>
                     <Link
+                        to="/pdf-upload"
+                        className="px-8 py-4 text-lg font-semibold text-white bg-gradient-to-r from-indigo-500 to-purple-600 rounded-full hover:from-indigo-600 hover:to-purple-700 transition-all shadow-xl shadow-indigo-500/20"
+                    >
+                        📄 Upload PDF & QR
+                    </Link>
+                    <Link
                         to="/login"
                         className="px-8 py-4 text-lg font-semibold text-slate-200 bg-slate-800 rounded-full hover:bg-slate-700 transition-all border border-slate-700"
                     >
@@ -33,11 +39,12 @@ const Home = () => {
                     </Link>
                 </div>
 
-                <div className="mt-20 grid grid-cols-1 md:grid-cols-3 gap-8 max-w-5xl w-full">
+                <div className="mt-20 grid grid-cols-1 md:grid-cols-4 gap-6 max-w-6xl w-full">
                     {[
                         { title: 'Conversational UI', desc: 'No complex tools. Just tell the AI what you want.' },
                         { title: 'Instant Blueprints', desc: 'Generate accurate 2D layouts in seconds.' },
-                        { title: '3D AI Rendering', desc: 'See your future home with photorealistic visuals.' }
+                        { title: '3D AI Rendering', desc: 'See your future home with photorealistic visuals.' },
+                        { title: 'PDF & QR Share', desc: 'Upload documents and get instant shareable links and QR codes.' }
                     ].map((feature, i) => (
                         <div key={i} className="p-6 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-sm">
                             <h3 className="text-xl font-semibold text-white mb-2">{feature.title}</h3>

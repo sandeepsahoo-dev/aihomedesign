@@ -81,11 +81,25 @@ const Studio = () => {
         <div className="flex flex-col min-h-screen bg-slate-50 font-inter">
             {/* Header */}
             <header className="p-4 border-b border-slate-200 flex justify-between items-center bg-white shadow-sm z-10 w-full shrink-0">
-                <h1 className="font-bold text-xl text-slate-800 flex items-center gap-2">
-                    <Logo className="w-8 h-8" />
-                    AI Home Studio
-                </h1>
+                <div className="flex items-center gap-6">
+                    <a href="/" className="font-bold text-xl text-slate-800 flex items-center gap-2 hover:opacity-80 transition-opacity">
+                        <Logo className="w-8 h-8" />
+                        AI Home Studio
+                    </a>
+                    <a
+                        href="/pdf-upload"
+                        className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors border border-indigo-100"
+                    >
+                        📄 Upload PDF & QR Hub
+                    </a>
+                </div>
                 <div className="flex items-center gap-4">
+                    <a
+                        href="/pdf-upload"
+                        className="sm:hidden text-xs font-bold text-indigo-600 bg-indigo-50 px-2.5 py-1.5 rounded-lg"
+                    >
+                        PDF Hub
+                    </a>
                     {!user && (
                         <span className="text-sm text-slate-500 font-medium hidden sm:inline-block">Login to save your designs</span>
                     )}

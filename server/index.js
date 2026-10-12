@@ -12,9 +12,13 @@ connectDB();
 
 const app = express();
 
+const path = require('path');
+const pdfRoutes = require('./routes/pdfRoutes');
+
 // Middleware
 app.use(cors());
 app.use(express.json());
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Basic Route
 app.get('/', (req, res) => {
@@ -27,6 +31,7 @@ app.get('/api/health', (req, res) => {
 
 app.use('/api/users', userRoutes);
 app.use('/api', aiRoutes);
+app.use('/api/pdf', pdfRoutes);
 
 const PORT = process.env.PORT || 5000;
 
