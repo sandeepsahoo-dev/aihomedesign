@@ -26,7 +26,7 @@ app.get('/api/health', (req, res) => {
 });
 
 app.use('/api/users', userRoutes);
-app.use('/api/ai', aiRoutes);
+app.use('/api', aiRoutes);
 
 const PORT = process.env.PORT || 5000;
 

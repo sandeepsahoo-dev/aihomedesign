@@ -1,60 +1,37 @@
-import { useState, useContext, useEffect, useRef } from 'react';
+import { useState, useContext, useRef, useEffect } from 'react';
 import axios from 'axios';
 import AuthContext from '../context/AuthContext';
-import BlueprintVisualizer from '../components/BlueprintVisualizer';
-import ColorStudio from '../components/ColorStudio';
-import RenderGallery from '../components/RenderGallery';
-import DownloadSection from '../components/DownloadSection';
 import Logo from '../components/Logo';
+
+const EXAMPLE_PROMPTS = [
+    "Ultra realistic modern house, 4K, architectural design, exterior view, natural lighting, highly detailed, professional photography style. Modern 2-floor house with garden, white theme, glass walls, luxury style, ultra realistic, 4k, architectural render",
+    "Mediterranean style villa with a terracotta roof, white stucco walls, an outdoor swimming pool, and arched doorways.",
+    "Contemporary Indian home designed for tropical weather, featuring a central courdyard (brahmasthan), jali work screens, and earthy terracotta tones.",
+    "Cozy Scandinavian interior living room with lots of natural light, light oak wood floors, a neutral beige couch, and minimalist indoor plants."
+];
 
 const Studio = () => {
     const { user, logout } = useContext(AuthContext);
-    const [messages, setMessages] = useState([
-        { role: 'assistant', content: `Hello ${user?.name}! I'm your AI Architect. Let's start building your dream home. First, what is the size of your plot?` }
-    ]);
     const [input, setInput] = useState('');
-    const [isTyping, setIsTyping] = useState(false);
-    const [layout, setLayout] = useState(null);
-    const [palette, setPalette] = useState(null);
-    const [isSynthesizing, setIsSynthesizing] = useState(false);
-    const [isGeneratingColors, setIsGeneratingColors] = useState(false);
-    const [view, setView] = useState('blueprint'); // 'blueprint', 'colors', 'render', 'exports'
-    const [renders, setRenders] = useState([]);
-    const [isGeneratingRenders, setIsGeneratingRenders] = useState(false);
-    const messagesEndRef = useRef(null);
-
-    const scrollToBottom = () => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    };
+    const [isGenerating, setIsGenerating] = useState(false);
+    const [result, setResult] = useState(null); // { image, description }
+    const [error, setError] = useState(null);
+    
+    // Auto-scroll
+    const resultRef = useRef(null);
 
     useEffect(() => {
-        scrollToBottom();
-    }, [messages, isTyping]);
-
-    useEffect(() => {
-        if (user && (messages.length > 1 || layout || palette || renders.length > 0)) {
-            const saveHistory = async () => {
-                try {
-                    const config = {
-                        headers: { Authorization: `Bearer ${user.token}` }
-                    };
-                    await axios.post(`${import.meta.env.VITE_API_URL}/ai/history`, { messages, layout, palette, renders }, config);
-                } catch (error) {
-                    console.error('Failed to sync history:', error);
-                }
-            };
-            const timeoutId = setTimeout(saveHistory, 1000);
-            return () => clearTimeout(timeoutId);
+        if (result && resultRef.current) {
+            resultRef.current.scrollIntoView({ behavior: 'smooth' });
         }
-    }, [messages, layout, palette, renders, user]);
+    }, [result]);
 
-    const handleSend = async () => {
+    const handleGenerate = async () => {
         if (!input.trim()) return;
 
-        const newMessages = [...messages, { role: 'user', content: input }];
-        setMessages(newMessages);
-        setInput('');
-        setIsTyping(true);
+        setIsGenerating(true);
+        setResult(null);
+        setError(null);
 
         try {
             const config = {
@@ -63,416 +40,188 @@ const Studio = () => {
                 },
             };
 
+            // Using our optimized single backend route that handles both image and text concurrently
             const { data } = await axios.post(
-                `${import.meta.env.VITE_API_URL}/ai/chat`,
-                { messages: newMessages },
+                `${import.meta.env.VITE_API_URL}/generate-design`,
+                { prompt: input },
                 config
             );
 
-            setMessages([...newMessages, { role: 'assistant', content: data.content }]);
-
-            // Trigger synthesis if data gathering is complete
-            if (data.content.includes('SYSTEM_DATA_ACQUIRED')) {
-                synthesizeLayout(newMessages);
+            if (!data.image || !data.description) {
+               throw new Error("Invalid response format from server");
             }
-        } catch (error) {
-            console.error(error);
-            setMessages([...newMessages, { role: 'assistant', content: "I'm sorry, I'm having trouble thinking right now. Please check your connection." }]);
+
+            setResult({
+                image: data.image,
+                description: data.description,
+            });
+            
+            // Save to history automatically if logged in
+            if (user?.token) {
+                 await axios.post(
+                    `${import.meta.env.VITE_API_URL}/history`,
+                    { 
+                        messages: [{ role: 'user', content: input }, { role: 'assistant', content: data.description }],
+                        renders: [{ view: 'Dall-E Render', imageUrl: data.image }]
+                    },
+                    config
+                ).catch(err => console.error('Failed to save history inline:', err));
+            }
+
+        } catch (err) {
+            console.error(err);
+            const errorMessage = err.response?.data?.message || err.message || "Failed to connect to the AI engine. Please try again.";
+            setError(errorMessage);
         } finally {
-            setIsTyping(false);
-        }
-    };
-
-    const synthesizeLayout = async (conversation) => {
-        setIsSynthesizing(true);
-        try {
-            const config = {
-                headers: {
-                    ...(user?.token ? { Authorization: `Bearer ${user.token}` } : {}),
-                },
-            };
-
-            const { data } = await axios.post(
-                `${import.meta.env.VITE_API_URL}/ai/synthesize`,
-                { conversationHistory: conversation },
-                config
-            );
-
-            setLayout(data);
-            setView('blueprint');
-        } catch (error) {
-            console.error(error);
-            alert("Architectural synthesis failed. Please try again.");
-        } finally {
-            setIsSynthesizing(false);
-        }
-    };
-
-    const handleGeneratePalette = async (aesthetic) => {
-        setIsGeneratingColors(true);
-        try {
-            const config = {
-                headers: {
-                    ...(user?.token ? { Authorization: `Bearer ${user.token}` } : {}),
-                },
-            };
-
-            const { data } = await axios.post(
-                `${import.meta.env.VITE_API_URL}/ai/colors`,
-                { aesthetic },
-                config
-            );
-
-            setPalette(data);
-        } catch (error) {
-            console.error(error);
-            alert("Color palette generation failed.");
-        } finally {
-            setIsGeneratingColors(false);
-        }
-    };
-
-    const handleGenerateMultiView = async () => {
-        if (renders.length > 0) {
-            setView('render');
-            return;
-        }
-
-        setIsGeneratingRenders(true);
-        setView('render');
-        try {
-            const config = {
-                headers: {
-                    ...(user?.token ? { Authorization: `Bearer ${user.token}` } : {}),
-                },
-            };
-
-            const { data } = await axios.post(
-                `${import.meta.env.VITE_API_URL}/ai/multi-visualize`,
-                { description: `A high-end modern house based on the blueprint layout.` },
-                config
-            );
-
-            setRenders(data.renders);
-        } catch (error) {
-            console.error(error);
-            alert("Multi-view generation failed.");
-        } finally {
-            setIsGeneratingRenders(false);
-        }
-    };
-
-    const handleGenerateFloorRenders = async () => {
-        setIsGeneratingRenders(true);
-        setView('render');
-        try {
-            const config = {
-                headers: {
-                    ...(user?.token ? { Authorization: `Bearer ${user.token}` } : {}),
-                },
-            };
-
-            const { data } = await axios.post(
-                `${import.meta.env.VITE_API_URL}/ai/floor-visualize`,
-                { layout },
-                config
-            );
-
-            const floorRendersTranslated = data.floorRenders.map(fr => ({
-                view: fr.floor,
-                imageUrl: fr.imageUrl
-            }));
-
-            setRenders(prev => [...prev, ...floorRendersTranslated]);
-        } catch (error) {
-            console.error(error);
-            alert("Floor render generation failed.");
-        } finally {
-            setIsGeneratingRenders(false);
-        }
-    };
-
-    const handleDownloadBlueprint = async (format) => {
-        try {
-            const config = {
-                headers: {
-                    ...(user?.token ? { Authorization: `Bearer ${user.token}` } : {}),
-                },
-                responseType: 'blob'
-            };
-
-            const { data } = await axios.post(
-                `${import.meta.env.VITE_API_URL}/ai/download`,
-                { layout, format },
-                config
-            );
-
-            const url = window.URL.createObjectURL(new Blob([data]));
-            const link = document.createElement('a');
-            link.href = url;
-            link.setAttribute('download', `Blueprint_${Date.now()}.${format}`);
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-        } catch (error) {
-            console.error('Blueprint download failed:', error);
-            alert("Download failed.");
-        }
-    };
-
-    const handleDownloadAllAssets = async () => {
-        try {
-            const config = {
-                headers: {
-                    ...(user?.token ? { Authorization: `Bearer ${user.token}` } : {}),
-                },
-                responseType: 'blob'
-            };
-
-            // Filter renders into categories based on their 'view' names or we need a way to distinguish them if they are all in the same array
-            // Actually, we can just send the entire renders array and handle it, or we could have kept them separate in state
-            // Let's assume the current 'renders' state has everything.
-            // For more precision, we might need separate state variables for houseViews, floorRenders, interiorRenders
-            // But let's keep it simple for now and send what we have.
-
-            const { data } = await axios.post(
-                `${import.meta.env.VITE_API_URL}/ai/download-all`,
-                {
-                    layout,
-                    renders: renders.filter(r => ['Front Elevation', 'Side View', 'Angled 3D Perspective'].includes(r.view)),
-                    floorRenders: renders.filter(r => ['Ground Floor', 'First Floor'].includes(r.view)).map(r => ({ floor: r.view, imageUrl: r.imageUrl })),
-                    interiorRenders: renders.filter(r => !['Front Elevation', 'Side View', 'Angled 3D Perspective', 'Ground Floor', 'First Floor'].includes(r.view)).map(r => ({ room: r.view, imageUrl: r.imageUrl }))
-                },
-                config
-            );
-
-            const url = window.URL.createObjectURL(new Blob([data]));
-            const link = document.createElement('a');
-            link.href = url;
-            link.setAttribute('download', `Architectural_Portfolio_${Date.now()}.zip`);
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-        } catch (error) {
-            console.error('Bulk download failed:', error);
-            alert("Export failed. Please try again.");
-        }
-    };
-
-    const handleGenerateInteriorRenders = async () => {
-        setIsGeneratingRenders(true);
-        setView('render');
-        try {
-            const config = {
-                headers: {
-                    ...(user?.token ? { Authorization: `Bearer ${user.token}` } : {}),
-                },
-            };
-
-            const { data } = await axios.post(
-                `${import.meta.env.VITE_API_URL}/ai/interior-visualize`,
-                { layout, palette },
-                config
-            );
-
-            const interiorRendersTranslated = data.interiorRenders.map(ir => ({
-                view: ir.room,
-                imageUrl: ir.imageUrl
-            }));
-
-            setRenders(prev => [...prev, ...interiorRendersTranslated]);
-        } catch (error) {
-            console.error(error);
-            alert("Interior render generation failed.");
-        } finally {
-            setIsGeneratingRenders(false);
+            setIsGenerating(false);
         }
     };
 
     return (
-        <div className="flex h-screen bg-white overflow-hidden font-inter">
-            {/* Sidebar / Chat */}
-            <div className={`w-1/3 flex flex-col border-r border-slate-200 bg-slate-50 transition-all ${view !== 'blueprint' ? 'opacity-50 pointer-events-none grayscale' : ''}`}>
-                <div className="p-4 border-b border-slate-200 flex justify-between items-center bg-white">
-                    <h1 className="font-bold text-slate-800 flex items-center gap-2">
-                        <Logo className="w-10 h-10" />
-                        Studio
-                    </h1>
-                    <div className="flex items-center gap-3">
-                        {!user && (
-                            <span className="text-xs text-amber-500 font-medium">Login to save your history</span>
-                        )}
-                        {user ? (
-                            <button onClick={logout} className="text-xs font-semibold text-slate-400 hover:text-red-500 transition-colors uppercase tracking-widest">Logout</button>
-                        ) : (
-                            <a href="/login" className="text-xs font-semibold text-blue-600 hover:text-blue-700 transition-colors uppercase tracking-widest">Sign In</a>
-                        )}
-                    </div>
-                </div>
-
-                <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                    {messages.map((m, i) => (
-                        <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                            <div className={`max-w-[85%] p-4 rounded-2xl text-sm leading-relaxed ${m.role === 'user' ? 'bg-blue-600 text-white shadow-lg shadow-blue-100' : 'bg-white border border-slate-200 text-slate-700 shadow-sm'}`}>
-                                {m.content}
-                            </div>
-                        </div>
-                    ))}
-                    {isTyping && (
-                        <div className="flex justify-start">
-                            <div className="bg-white border border-slate-200 p-4 rounded-2xl shadow-sm text-slate-400 text-sm animate-pulse">
-                                Architect is typing...
-                            </div>
-                        </div>
+        <div className="flex flex-col min-h-screen bg-slate-50 font-inter">
+            {/* Header */}
+            <header className="p-4 border-b border-slate-200 flex justify-between items-center bg-white shadow-sm z-10 w-full shrink-0">
+                <h1 className="font-bold text-xl text-slate-800 flex items-center gap-2">
+                    <Logo className="w-8 h-8" />
+                    AI Home Studio
+                </h1>
+                <div className="flex items-center gap-4">
+                    {!user && (
+                        <span className="text-sm text-slate-500 font-medium hidden sm:inline-block">Login to save your designs</span>
                     )}
-                    <div ref={messagesEndRef} />
+                    {user ? (
+                        <button onClick={logout} className="text-sm font-semibold text-slate-500 hover:text-red-600 transition-colors uppercase tracking-widest">Logout</button>
+                    ) : (
+                        <a href="/login" className="px-5 py-2 bg-slate-900 text-white rounded-lg text-sm font-semibold hover:bg-slate-800 transition-all shadow-md">Sign In</a>
+                    )}
                 </div>
+            </header>
 
-                <div className="p-6 bg-white border-t border-slate-200 shadow-2xl">
-                    <div className="flex gap-2 p-1 bg-slate-100 rounded-2xl border border-slate-200 focus-within:ring-2 focus-within:ring-blue-500 transition-all">
-                        <input
-                            type="text"
-                            className="flex-1 px-4 py-3 bg-transparent border-none outline-none text-sm text-slate-700"
-                            placeholder="Type your requirement..."
+            {/* Main Content Area */}
+            <main className="flex-1 w-full max-w-4xl mx-auto p-4 sm:p-8 flex flex-col items-center">
+                
+                {/* Input Card */}
+                <div className="w-full bg-white rounded-2xl shadow-xl border border-slate-100 p-6 sm:p-8 mb-8">
+                    <h2 className="text-3xl font-extrabold text-slate-800 mb-2 tracking-tight">Design Your Space</h2>
+                    <p className="text-slate-500 mb-6">
+                        Describe your dream home or room. Our AI uses GPT-4o and gpt-image-1 to instantly generate an architectural rendering and detailed layout description.
+                    </p>
+
+                    <div className="mb-4">
+                        <label className="block text-sm font-bold text-slate-700 mb-2">Design Prompt</label>
+                        <textarea
+                            className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none h-32 transition-all shadow-inner"
+                            placeholder="e.g., A minimalist white-themed modern house exterior with large glass panels and a glowing swimming pool at dusk..."
                             value={input}
                             onChange={(e) => setInput(e.target.value)}
-                            onKeyPress={(e) => e.key === 'Enter' && handleSend()}
+                            disabled={isGenerating}
                         />
-                        <button
-                            onClick={handleSend}
-                            className="px-6 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all font-semibold text-sm shadow-md shadow-blue-100"
-                        >
-                            Send
-                        </button>
                     </div>
-                </div>
-            </div>
 
-            {/* Main Preview Panel */}
-            <div className="flex-1 relative bg-slate-100 overflow-hidden">
-                <div className="absolute inset-0 p-8">
-                    {view === 'blueprint' && (
-                        layout ? (
-                            <BlueprintVisualizer layout={layout} />
+                    {/* Example Prompts */}
+                    <div className="mb-6">
+                        <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Try an example</p>
+                        <div className="flex flex-wrap gap-2">
+                            {EXAMPLE_PROMPTS.map((prompt, idx) => (
+                                <button
+                                    key={idx}
+                                    onClick={() => setInput(prompt)}
+                                    disabled={isGenerating}
+                                    className="text-left text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-medium px-3 py-2 rounded-lg transition-colors border border-indigo-100 max-w-[48%] truncate"
+                                    title={prompt}
+                                >
+                                    "{prompt.substring(0, 45)}..."
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Error Handling */}
+                    {error && (
+                        <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-500 text-red-700 rounded-lg">
+                            <p className="font-bold">Error Generating Design</p>
+                            <p className="text-sm">{error}</p>
+                        </div>
+                    )}
+
+                    {/* Generate Button */}
+                    <button
+                        onClick={handleGenerate}
+                        disabled={isGenerating || !input.trim()}
+                        className={`w-full py-4 rounded-xl font-bold text-lg shadow-lg transition-all flex justify-center items-center gap-2 
+                        \${isGenerating || !input.trim() 
+                            ? 'bg-slate-200 text-slate-400 cursor-not-allowed' 
+                            : 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-600/30 hover:-translate-y-0.5'}`}
+                    >
+                        {isGenerating ? (
+                            <>
+                                <svg className="animate-spin -ml-1 mr-2 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                Architecting Design...
+                            </>
                         ) : (
-                            <div className="w-full h-full bg-white rounded-3xl shadow-2xl border border-slate-200 flex flex-col items-center justify-center text-center p-8">
-                                <div className={`w-24 h-24 mb-6 border-4 border-slate-100 border-t-blue-500 rounded-full ${isSynthesizing || isTyping ? 'animate-spin' : ''}`}></div>
-                                <h2 className="text-2xl font-bold text-slate-800 mb-2">
-                                    {isSynthesizing ? 'Synthesizing Architecture' : 'Architectural Canvas'}
-                                </h2>
-                                <p className="text-slate-500 max-w-md">
-                                    {isSynthesizing
-                                        ? 'I am processing your requirements to generate a logical floor plan. Please wait...'
-                                        : 'Finish your discussion with the AI Architect to generate your blueprint here.'}
-                                </p>
+                            'Generate Concept'
+                        )}
+                    </button>
+                    {isGenerating && (
+                        <p className="text-center text-xs text-slate-400 mt-3 animate-pulse">
+                            Optimizing generation via Promise.all (avg ~8s)
+                        </p>
+                    )}
+                </div>
+
+                {/* Output Card */}
+                {result && !isGenerating && (
+                    <div ref={resultRef} className="w-full bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden mb-16 animation-fade-in-up">
+                        {/* Image Output (Top) */}
+                        <div className="relative w-full bg-slate-100 group">
+                            <img 
+                                src={result.image} 
+                                alt="Generated Architecture" 
+                                className="w-full h-auto object-cover max-h-[600px]"
+                            />
+                            <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <a 
+                                    href={result.image} 
+                                    download="ai-design.png"
+                                    target="_blank" 
+                                    rel="noreferrer" 
+                                    className="bg-white/90 backdrop-blur-sm text-slate-800 text-sm font-bold px-4 py-2 rounded-lg shadow-lg hover:bg-white transition-colors"
+                                >
+                                    ⬇ Download High-Res
+                                </a>
                             </div>
-                        )
-                    )}
+                        </div>
 
-                    {view === 'colors' && (
-                        <ColorStudio
-                            palette={palette}
-                            onGenerate={handleGeneratePalette}
-                            isLoading={isGeneratingColors}
-                        />
-                    )}
-
-                    {view === 'render' && (
-                        <div className="w-full h-full bg-white rounded-3xl shadow-2xl border border-slate-200 p-8 overflow-auto">
-                            {isGeneratingRenders ? (
-                                <div className="w-full h-full flex flex-col items-center justify-center text-center">
-                                    <div className="w-24 h-24 mb-6 border-4 border-slate-100 border-t-indigo-600 rounded-full animate-spin"></div>
-                                    <h2 className="text-2xl font-bold text-slate-800 mb-2">Generating Architectural Renders</h2>
-                                    <p className="text-slate-500 max-w-md">I am creating high-fidelity Front, Side, and 3D perspectives of your design. This may take a minute...</p>
+                        {/* Description Output (Below Image) */}
+                        <div className="p-8">
+                            <h3 className="text-2xl font-bold text-slate-800 mb-6 pb-4 border-b border-slate-100 flex items-center gap-2">
+                                <span className="bg-blue-100 text-blue-600 p-2 rounded-lg">
+                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                                </span>
+                                Design Specifications
+                            </h3>
+                            <div className="prose prose-slate max-w-none prose-headings:font-bold prose-headings:text-slate-800 prose-p:text-slate-600 prose-p:leading-relaxed">
+                                <div className="whitespace-pre-wrap font-medium">
+                                    {result.description}
                                 </div>
-                            ) : (
-                                renders.length > 0 ? (
-                                    <RenderGallery
-                                        renders={renders}
-                                        onDownloadAll={handleDownloadAllAssets}
-                                        isPaid={user?.isPaid}
-                                    />
-                                ) : (
-                                    <div className="w-full h-full flex flex-col items-center justify-center text-center">
-                                        <div className="w-20 h-20 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center text-3xl mb-4">🎨</div>
-                                        <h2 className="text-2xl font-bold text-slate-800 mb-2">3D Render Suite</h2>
-                                        <p className="text-slate-500 max-w-sm mb-8">Generate professional, high-resolution architectural visualizations of your house and floors.</p>
-                                        <div className="flex gap-4">
-                                            <button
-                                                onClick={handleGenerateMultiView}
-                                                className="px-8 py-3 bg-indigo-600 text-white rounded-2xl font-bold shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all"
-                                            >
-                                                Generate All Views
-                                            </button>
-                                            <button
-                                                onClick={handleGenerateFloorRenders}
-                                                className="px-8 py-3 bg-white text-indigo-600 border border-indigo-200 rounded-2xl font-bold shadow-xl hover:bg-indigo-50 transition-all"
-                                            >
-                                                Generate Floor Renders
-                                            </button>
-                                            <button
-                                                onClick={handleGenerateInteriorRenders}
-                                                className="px-8 py-3 bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-2xl font-bold shadow-xl hover:bg-indigo-100 transition-all"
-                                            >
-                                                Generate Interior Renders
-                                            </button>
-                                        </div>
-                                    </div>
-                                )
-                            )}
+                            </div>
                         </div>
-                    )}
-
-                    {view === 'exports' && (
-                        <DownloadSection
-                            layout={layout}
-                            renders={renders}
-                            isPaid={user?.isPaid}
-                            handleDownloadBlueprint={handleDownloadBlueprint}
-                            handleDownloadAll={handleDownloadAllAssets}
-                        />
-                    )}
-                </div>
-
-                {/* Studio Controls Header */}
-                <div className="absolute top-12 left-12 right-12 flex justify-between items-center pointer-events-none">
-                    <div className="px-6 py-3 bg-white/90 backdrop-blur-xl border border-white/20 rounded-2xl shadow-xl flex items-center gap-3 pointer-events-auto">
-                        <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-                        <span className="text-xs font-bold text-slate-700 uppercase tracking-widest">
-                            {layout ? 'Design Ready' : 'Acquiring Data'}
-                        </span>
                     </div>
-
-                    {layout && (
-                        <div className="flex gap-2 pointer-events-auto">
-                            <button
-                                onClick={() => setView('blueprint')}
-                                className={`px-6 py-3 rounded-2xl font-bold text-xs uppercase tracking-widest transition-all ${view === 'blueprint' ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' : 'bg-white/90 backdrop-blur-xl border border-slate-200 text-slate-700 shadow-xl'}`}
-                            >
-                                2D Layout
-                            </button>
-                            <button
-                                onClick={() => setView('colors')}
-                                className={`px-6 py-3 rounded-2xl font-bold text-xs uppercase tracking-widest transition-all ${view === 'colors' ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' : 'bg-white/90 backdrop-blur-xl border border-slate-200 text-slate-700 shadow-xl'}`}
-                            >
-                                Color Studio
-                            </button>
-                            <button
-                                onClick={handleGenerateMultiView}
-                                className={`px-6 py-3 rounded-2xl font-bold text-xs uppercase tracking-widest transition-all ${view === 'render' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' : 'bg-white/90 backdrop-blur-xl border border-slate-200 text-slate-700 shadow-xl'}`}
-                            >
-                                3D Render
-                            </button>
-                            <button
-                                onClick={() => setView('exports')}
-                                className={`px-6 py-3 rounded-2xl font-bold text-xs uppercase tracking-widest transition-all ${view === 'exports' ? 'bg-slate-900 text-white shadow-lg shadow-slate-200' : 'bg-white/90 backdrop-blur-xl border border-slate-200 text-slate-700 shadow-xl'}`}
-                            >
-                                Exports
-                            </button>
-                        </div>
-                    )}
-                </div>
-            </div>
+                )}
+            </main>
+            
+            <style jsx="true">{`
+                .animation-fade-in-up {
+                    animation: fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+                }
+                @keyframes fadeInUp {
+                    from { opacity: 0; transform: translateY(30px); }
+                    to { opacity: 1; transform: translateY(0); }
+                }
+            `}</style>
         </div>
     );
 };
